@@ -1028,7 +1028,6 @@ def ptx_to_cubin(ptx: str, compute_capability: int):
     :return: str
     '''
     ptxas, _ = path_to_ptxas()
-    # print("python/triton/compiler.py:188: Compiling from ptx to cubin. Arguments: ptx: {}, ptxas: {}, compute_capability: {}".format(ptx, ptxas, compute_capability), flush=True)
     return _triton.compile_ptx_to_cubin(ptx, ptxas, compute_capability)
 
 

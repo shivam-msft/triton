@@ -1,4 +1,4 @@
-﻿#include "mlir/IR/Builders.h"
+﻿﻿#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Verifier.h"
@@ -45,9 +45,6 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <unistd.h>
-#include <signal.h>
-#include <sys/wait.h>
 
 namespace py = pybind11;
 
@@ -1475,12 +1472,9 @@ void init_triton_translation(py::module &m) {
       },
       ret::take_ownership);
 
-     m.def(
-      "compile_ptx_to_cubin",
-      [](const std::string &ptxCode, const std::string &ptxasPath,
-         int capability) -> py::object {
-        std::string cubin;
-        {
+  m.def("compile_ptx_to_cubin",
+        [](const std::string &ptxCode, const std::string &ptxasPath,
+           int capability) -> py::object {
           py::gil_scoped_release allow_threads;
 
           // compile ptx with ptxas
@@ -1489,6 +1483,7 @@ void init_triton_translation(py::module &m) {
           llvm::sys::fs::createTemporaryFile("compile-ptx-src", "", fsrc);
           llvm::sys::fs::createTemporaryFile("compile-ptx-log", "", flog);
           std::string fbin = std::string(fsrc) + ".o";
+          llvm::FileRemover srcRemover(fsrc);
           llvm::FileRemover logRemover(flog);
           llvm::FileRemover binRemover(fbin);
           const char *_fsrc = fsrc.c_str();
@@ -1498,142 +1493,31 @@ void init_triton_translation(py::module &m) {
           ofs << ptxCode << std::endl;
           ofs.close();
 
-          auto lineInfoOption =
-              triton::tools::getBoolEnv("TRITON_DISABLE_LINE_INFO")
-                  ? ""
-                  : " -lineinfo";
-          auto capabilitySuffix = (capability == 90) ? "a " : "";
-          auto outputFileName = std::string(_fsrc) + ".o";
-          auto logRedirect = " 2> " + std::string(_flog);
-
-          // std::string cmd = ptxasPath + lineInfoOption + " -v --gpu-name=sm_" +
-          //                   std::to_string(capability) + capabilitySuffix +
-          //                   _fsrc + " -o " + outputFileName + logRedirect;
-
-          // int err = system(cmd.c_str());
-
-          // printf("python/src/triton.cc:1515 - Forking process to run %s \n", ptxasPath.c_str());
           pid_t pid = fork();
 
           if (pid == -1)
           {
-          //  printf("triton.cc:1517 - Error in fork \n");
+               printf("triton.cc:CRITICAL:Error in fork \n");
           } 
           else if (pid > 0)
           {
-               // printf("triton.cc:15201- Parent process \n");
                int status;
                waitpid(pid, &status, 0);
           }
           else 
           {
-               // printf("triton.cc:1527 - Child process \n");
-
                std::string new_cmd;
-               // new_cmd = ptxasPath + " -v " + gpu_arg +
-               //      " " + _fsrc + " -o " + _fbin;
                std::string gpu_arg = "--gpu-name=sm_" + std::to_string(capability) + capabilitySuffix;
-               new_cmd = ptxasPath + " -v " + gpu_arg +
-                            _fsrc + " -o " + outputFileName;
-               // printf("python/src/triton.cc:1536 Executing command %s \n", new_cmd.c_str());
-
                int err = execl(ptxasPath.c_str(), "ptxas", "-v",  gpu_arg.c_str(), _fsrc, "-o", outputFileName.c_str(), NULL);
-               // printf("python/src/triton.cc:1541 Executed command %s with return %d \n", new_cmd.c_str(), err);
-
-               _exit(EXIT_FAILURE);   // exec never returns
+               _exit(EXIT_FAILURE);
           }
 
-          // if (err != 0) {
-          //   err >>= 8;
-          //   std::ifstream _log(_flog);
-          //   std::string log(std::istreambuf_iterator<char>(_log), {});
-          //   if (err == 255) {
-          //     throw std::runtime_error("Internal Triton PTX codegen error: \n" +
-          //                              log);
-          //   } else if (err == 128 + SIGSEGV) {
-          //     throw std::runtime_error("Please run `ptxas " + fsrc.str().str() +
-          //                              "` to confirm that this is a "
-          //                              "bug in `ptxas`\n" +
-          //                              log);
-          //   } else {
-          //     throw std::runtime_error("`ptxas` failed with error code " +
-          //                              std::to_string(err) + ": \n" + log);
-          //   }
-          //   return {};
-          // } else {
-          llvm::FileRemover srcRemover(fsrc);
           std::ifstream _cubin(_fbin, std::ios::binary);
-          cubin = std::string(std::istreambuf_iterator<char>(_cubin), {});
+          std::string cubin(std::istreambuf_iterator<char>(_cubin), {});
           _cubin.close();
-          // Do not return here, exit the gil scope and return below
-          // }
-        }
-        py::bytes bytes(cubin);
-        return std::move(bytes);
-      });
-
-//   m.def("compile_ptx_to_cubin",
-//         [](const std::string &ptxCode, const std::string &ptxasPath,
-//            int capability) -> py::object {
-//           py::gil_scoped_release allow_threads;
-
-//           // compile ptx with ptxas
-//           llvm::SmallString<64> fsrc;
-//           llvm::SmallString<64> flog;
-//           llvm::sys::fs::createTemporaryFile("compile-ptx-src", "", fsrc);
-//           llvm::sys::fs::createTemporaryFile("compile-ptx-log", "", flog);
-//           std::string fbin = std::string(fsrc) + ".o";
-//           llvm::FileRemover srcRemover(fsrc);
-//           llvm::FileRemover logRemover(flog);
-//           llvm::FileRemover binRemover(fbin);
-//           const char *_fsrc = fsrc.c_str();
-//           const char *_flog = flog.c_str();
-//           const char *_fbin = fbin.c_str();
-//           // std::string tempString = _fsrc;
-//           // std::string copyPtx = "/repo/src/subsystems/reliability/gpu_unit_tests/models/torch_inductor_debug/triton_source/triton/python/triton/third_party/cuda/bin/"+tempString;
-//           // const char *_copyPtx = copyPtx.c_str();
-
-//           std::ofstream ofs(_fsrc);
-//           ofs << ptxCode << std::endl;
-//           ofs.close();
-
-//           // std::ofstream ofs1(_copyPtx);
-//           // ofs1 << ptxCode << std::endl;
-//           // ofs1.close();
-//           // printf("triton.cc Debug 3.5. Ptx file written in %s\n", _copyPtx);
-//           printf("triton.cc:1505 Debug \n",);
-//           // std::string cmd;
-//           int err;
-//           // cmd = "LD_DEBUG_OUTPUT=/repo/logs/quantus_new_singularity_2/gpu_unit_test_suite/2.0.0/test_accuracy_for_quantus_with_criu_single_device/1/singularity/ptxas_ld_debug.out LD_DEBUG=libs LD_PRELOAD= " + ptxasPath + " -v --gpu-name=sm_" + std::to_string(capability) +
-//           //       " " + _fsrc + " -o " + _fsrc + ".o 2> " + _flog;
-//           // cmd = ptxasPath + " -v --gpu-name=sm_" + std::to_string(capability) +
-//           //       " " + _copyPtx + " -o " + _copyPtx + ".o 2> " + _flog;
-
-
-//           std::string gpu_arg = "--gpu-name=sm_" + std::to_string(capability);
-//           // std::string out_file = tempString + ".o";          
-//           std::string new_cmd;
-//           new_cmd = ptxasPath + " -v " + gpu_arg +
-//                 " " + _fsrc + " -o " + _fbin;
-//           printf("python/src/triton.cc:1515 Executing command %s\n", new_cmd.c_str());
-
-//           err = execl(ptxasPath.c_str(), "ptxas", "-v",  gpu_arg.c_str(), _fsrc, "-o", _fbin, NULL);
-//           printf("python/src/triton.cc:1520 Executed command %s\n", new_cmd.c_str());
-
-//           // err = system(cmd.c_str());
-//           if (err != 0) {
-//             std::ifstream _log(_flog);
-//             std::string log(std::istreambuf_iterator<char>(_log), {});
-//             printf("triton.cc Error: %d\n", err);
-//             throw std::runtime_error("Internal Triton PTX codegen error: \n" +
-//                                      log);
-//           }
-//           std::ifstream _cubin(_fbin, std::ios::binary);
-//           std::string cubin(std::istreambuf_iterator<char>(_cubin), {});
-//           _cubin.close();
-//           py::bytes bytes(cubin);
-//           return std::move(bytes);
-//         });
+          py::bytes bytes(cubin);
+          return std::move(bytes);
+        });
 
   m.def("add_external_libs",
         [](mlir::ModuleOp &op, const std::vector<std::string> &names,
