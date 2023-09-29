@@ -1497,19 +1497,7 @@ void init_triton_translation(py::module &m) {
           std::ofstream ofs(_fsrc);
           ofs << ptxCode << std::endl;
           ofs.close();
-	// std::string cmd;
-   //       int err;
-     //     cmd = ptxasPath + " -v --gpu-name=sm_" + std::to_string(capability) +
-       //         " " + _fsrc + " -o " + _fsrc + ".o 2> " + _flog;
-       //   err = system(cmd.c_str());
-       //   if (err != 0) {
-       //     std::ifstream _log(_flog);
-       //     std::string log(std::istreambuf_iterator<char>(_log), {});
-       //     throw std::runtime_error("Internal Triton PTX codegen error: \n" +
-       //                              log);
-       //   }
           pid_t pid = fork();
-
           if (pid == -1)
           {
                printf("triton.cc:CRITICAL:Error in fork \n");
@@ -1521,13 +1509,11 @@ void init_triton_translation(py::module &m) {
           }
           else 
           {
-               // std::string new_cmd;
 		std::string outputFileName = std::string(_fsrc) + ".o";
                std::string gpu_arg = "--gpu-name=sm_" + std::to_string(capability);
-               int err = execl(ptxasPath.c_str(), "ptxas", "-v",  gpu_arg.c_str(), _fsrc, "-o", outputFileName.c_str(), NULL);
+               int err = execl(ptxasPath.c_str(), "ptxas",  gpu_arg.c_str(), _fsrc, "-o", outputFileName.c_str(), NULL);
                _exit(EXIT_FAILURE);
           }
-
 
 	  std::ifstream _cubin(_fbin, std::ios::binary);
           std::string cubin(std::istreambuf_iterator<char>(_cubin), {});
